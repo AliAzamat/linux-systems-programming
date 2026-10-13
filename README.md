@@ -1,11 +1,39 @@
-# Linux Systems Programming — Syscalls and mmap
+# Linux Systems Programming — Syscalls, MMIO, and Signals
 
-A project that utilizes the user-space side of systems programming on Linux. Showcases what a system call is and how file descriptors abstract every resource, then uses mmap over /dev/mem to map a hardware register block into the address space and poke it like ordinary memory. This is exactly how user-space drivers and bring-up tools touch a DPU's registers before a kernel driver exists.
+**Small, focused C tools for the user-space side of hardware bring-up: raw-syscall I/O, short-read-safe helpers, positioned register reads with `pread`, memory-mapped register access through `/dev/mem`, `poll`-based waiting, sysfs parsing, and a signal-safe service loop.**
 
-## Stack
-- C
-- Linux
-- Syscalls
-- File Descriptors
-- mmap
-- MMIO
+Before a kernel driver exists, bring-up engineers reach device registers from user space. Each tool here isolates one technique that matters for that work, with comments on the details that bite in practice — `volatile` for MMIO, `O_SYNC` mappings, `EINTR` retries, and why a signal handler should only set a flag.
+
+## The tools
+
+| Tool | Technique |
+|---|---|
+| `catfile <path>` | Reads a file with only `open`/`read`/`write`/`close` — no stdio buffering |
+| `io_util.c` | `read_full` / `write_full`: loop over short reads and writes, retrying on `EINTR` |
+| `regfield <device-file>` | Reads a 32-bit register at an offset with `pread`, which doesn't move the shared file position (a `pwrite` helper is included) |
+| `regpoke` | `mmap`s a page of physical memory from `/dev/mem` with `O_SYNC`, reads a status register and read-modify-writes a control bit through `volatile` pointers (requires root) |
+| `wait_ready` | Blocks on `poll` until stdin is readable or 2 seconds pass, retrying on `EINTR` |
+| `service` | Long-running loop that exits cleanly on `SIGINT`/`SIGTERM` using a `volatile sig_atomic_t` flag set by `sigaction` |
+| `sysfs.c` | Parses an integer attribute from `/proc` or `/sys` (reads `/proc/sys/kernel/pid_max`) with `strtoul` error checks |
+
+`regpoke` targets a placeholder register block at physical address `0x40000000`. **Don't run it on a real machine** unless that address is a device you own; writing to arbitrary physical memory can crash the system. [RUNBOOK.md](RUNBOOK.md) covers permissions (`CONFIG_STRICT_DEVMEM`), single-owner rules for register blocks, and troubleshooting.
+
+## Building
+
+Requires GCC on Linux.
+
+```bash
+git clone https://github.com/AliAzamat/linux-systems-programming.git
+cd linux-systems-programming
+make all CFLAGS="-Wall -Wextra -g -O0 -std=gnu11"
+gcc -Wall -Wextra -o sysfs sysfs.c          # not in the Makefile
+```
+
+Then, for example:
+
+```bash
+./catfile Makefile
+./wait_ready              # type something within 2 s, or let it time out
+./service                 # Ctrl-C → "signal received; cleaning up and exiting"
+./sysfs                   # pid_max = <value>
+```
