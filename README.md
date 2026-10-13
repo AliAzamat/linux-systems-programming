@@ -37,13 +37,3 @@ Then, for example:
 ./service                 # Ctrl-C → "signal received; cleaning up and exiting"
 ./sysfs                   # pid_max = <value>
 ```
-
-## Status
-
-With the Makefile's own flags (`-std=c11 -Werror`), `make all` builds `catfile` and `regpoke` but fails on `regfield` and `service`: strict C11 hides the POSIX declarations for `pread`, `pwrite`, and `struct sigaction`, and the unused `write_reg32` helper trips `-Werror`. Switching to `-std=gnu11` (or defining `_POSIX_C_SOURCE=200809L`) and dropping `-Werror`, as above, builds all five tools — verified with GCC on Linux.
-
-Other notes:
-
-- `make` with no target builds only `catfile`, because it's the first rule; use `make all`.
-- `regfield` links `io_util.c` but doesn't call it yet.
-- No tests are included.
